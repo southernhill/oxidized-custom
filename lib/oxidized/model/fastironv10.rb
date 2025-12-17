@@ -43,7 +43,7 @@ class FastIronV10 < Oxidized::Model
     comment cfg
   end
 
-  cmd 'show stack' do |cfg|
+  cmd 'show stack | exclude T=' do |cfg|
     comment cfg
   end
 
