@@ -1,13 +1,26 @@
 # Creating and Extending Models
 
-Oxidized supports a growing list of [operating system types](Supported-OS-Types.md). Out of the box, most model implementations collect configuration data. Some implementations also include a conservative set of additional commands that collect basic device information (device make and model, software version, licensing information, ...) which are appended to the configuration as comments.
+Oxidized supports a growing list of
+[operating system types](Supported-OS-Types.md). Out of the box, most model
+implementations collect configuration data. Some implementations also include a
+conservative set of additional commands that collect basic device information
+(device make and model, software version, licensing information, ...) which are
+appended to the configuration as comments.
 
-A user may wish to extend an existing model to collect the output of additional commands. Oxidized offers smart loading of models in order to facilitate this with ease, without the need to introduce changes to the upstream source code.
+A user may wish to extend an existing model to collect the output of additional
+commands. Oxidized offers smart loading of models in order to facilitate this
+with ease, without the need to introduce changes to the upstream source code.
 
-This methodology allows local site changes to be preserved during Oxidized version updates / gem updates. It also enables convenient local development of new models.
+This methodology allows local site changes to be preserved during Oxidized
+version updates / gem updates. It also enables convenient local development
+of new models.
 
 ## Index
 - [Creating a new model](#creating-a-new-model)
+- [Typical Tasks and Solutions](#typical-tasks-and-solutions)
+  - [Handling 'enable' mode](#handling-enable-mode)
+  - [Remove ANSI escape codes](#remove-ansi-escape-codes)
+  - [Conditional commands](#conditional-commands)
 - [Extending an existing model with a new command](#extending-an-existing-model-with-a-new-command)
 - [Create unit tests for the model](#create-unit-tests-for-the-model)
 - [Advanced features](#advanced-features)
@@ -15,14 +28,50 @@ This methodology allows local site changes to be preserved during Oxidized versi
 - [Help](#help)
 
 ## Creating a new model
+### Use the defacto model
+Before you create a new model, check the
+[defacto model](/lib/oxidized/model/defacto.rb). It aims to work with a lot of
+devices copying the defacto standard set by the cisco CLI:
+- login per ssh or telnet
+- disable pager
+- execute `show running-config`
+- run both `exit` and `logout`
 
+If you want to extend the defacto model, you can define your own model file,
+and inherit from `Defacto`:
+```ruby
+require 'oxidized/model/defacto'
+
+class OxiWare < Defacto
+  # Redefine how to process show running-config
+  def process_config(cfg)
+    cfg.gsub(/.*service timestamps.*/, '')
+  end
+
+  # run more commands. They will be run before 'show running-config'
+  cmd "show cdp neighbors" do |cfg|
+    comment cfg
+  end
+
+  # Send "enable" password if defined in vars("enable")
+  macro :enable
+end
+```
+
+If your model doesn't support "show running-config", or if you prefer to avoid
+the dependency of the defacto model, you will need to write a model "from
+scratch" as explained in the next section.
+
+### Create a new model from scratch
 An Oxidized model, at minimum, requires just three elements:
 
 * A model file, this file should be placed in the ~/.config/oxidized/model directory and named after the target OS type.
 * A class defined within this file with the same name as the file itself that inherits from `Oxidized::Model`, the base model class.
 * At least one command that will be executed and the output of which will be collected by Oxidized.
 
-A bare-bone example for a fictional model running the OS type `rootware` could be introduced by creating the file `~/.config/oxidized/model/rootware.rb`, with the following content:
+A bare-bone example for a fictional model running the OS type `rootware` could
+be introduced by creating the file `~/.config/oxidized/model/rootware.rb`, with
+the following content:
 
 ```ruby
 class RootWare < Oxidized::Model
@@ -54,51 +103,183 @@ The API documentation contains a list of [methods](https://github.com/ytti/oxidi
 
 A more fleshed out example can be found in the `IOS` and `JunOS` models.
 
-### Common task: mechanism for handling 'enable' mode
-The following code snippet demonstrates how to handle sending the 'enable'
-command and an enable password.
+## Typical Tasks and Solutions
 
-This example is taken from the `IOS` model. It covers scenarios where users
-need to enable privileged mode, either without providing a password (by setting
-`enable: true` in the configuration) or with a password.
+### Keep or Remove Lines Returned from a Command
+To make command output cleaner, you can remove unwanted lines or keep only
+specific ones.
 
+Most devices echo the executed command on the first line and display a
+prompt on the last line. To remove these for all commands, use
+[cut_both](Ruby-API.md#cut_both):
+```ruby
+  cmd :all do |cfg|
+    cfg.cut_both
+  end
+```
+
+You can also use the macro `clean :cut`, which does the same:
+```ruby
+  clean :cut
+```
+
+If you want to keep only relevant lines, use
+[keep_lines](Ruby-API.md#keep_lines):
+```ruby
+  cmd 'show interfaces transceiver' do |cfg|
+    cfg = cfg.keep_lines [
+      'SFP Information',
+      /Vendor (Name|Serial Number)/
+    ]
+    comment cfg + "\n"
+  end
+```
+
+If you want to suppress specific lines,
+use [reject_lines](Ruby-API.md#reject_lines):
+```ruby
+  cmd 'show running-config' do |cfg|
+    cfg.reject_lines [
+      'System Up Time',
+      /Current .* Time:/
+    ]
+  end
+```
+
+### Handling 'enable' mode
+Some devices need to send an 'enable' command and an enable password.
+
+You can use the `macro :enable` command to implement this:
+```ruby
+class IOS < Oxidized::Model
+  using Refinements
+  # ... Code ...
+  macro :enable
+end
+```
+
+`macro :enable` takes options:
+- `regex`; the regex to match the password prompt (default: `/password/i`)
+- `inputs`: a symbol or a list of symbols for which inputs enable should be activated (default: %i[telnet ssh])
+- `command`: the command needed to access privileged mode (default: `enable`)
+
+If one would want to access a german linux box as root, a minimal model would be:
+```ruby
+class GermanLinux < Oxidized::Model
+  using Refinements
+
+  prompt /^(\w.*|\W.*)[:#$] /
+  comment '# '
+
+  cmd "id"
+
+  cfg :ssh do
+    pre_logout 'exit'
+    pre_logout 'exit'
+  end
+
+  macro :enable, inputs: :ssh, command: "su -", regex: /Passwort: /
+end
+```
+
+The macro (with defaults) implements following code:
 ```ruby
   cfg :telnet, :ssh do
     post_login do
       if vars(:enable) == true
         cmd "enable"
       elsif vars(:enable)
-        cmd "enable", /^[pP]assword:/
+        cmd "enable", /password/i
         cmd vars(:enable)
       end
     end
   end
 ```
-Note: remove `:telnet, ` if your device does not support telnet.
 
-### Common Task: remove ANSI escape codes
-> :warning: This common task is experimental.
-> If it does not work for you, please open an issue so that we can adapt the
-> code snippet.
 
-Some devices produce ANSI escape codes to enhance the appearance of output.
+### Remove ANSI Escape Codes
+Some devices produce [ANSI escape codes](https://en.wikipedia.org/wiki/ANSI_escape_code#Control_Sequence_Introducer_commands)
+to enhance the appearance of their output.
 However, this can make prompt matching difficult and some of these ANSI escape
 codes might end up in the resulting configuration.
 
-You can remove most [ANSI escape codes](https://en.wikipedia.org/wiki/ANSI_escape_code#Control_Sequence_Introducer_commands) using the following Ruby
-code in your model:
+You can remove most ANSI escape codes by inserting the following line in your
+model:
+```ruby
+  clean :escape_codes
 ```
-  # Remove ANSI escape codes
-  expect /\e\[[0-?]*[ -\/]*[@-~]\r?/ do |data, re|
-    data.gsub re, ''
+
+When using clean `:escape_codes`, you don't have to worry about escape codes 
+in your prompt regexp, as they will be removed before the prompt detection runs.
+
+If it doesn't work for your model, please open an issue and provide a
+[device simulation file](/docs/DeviceSimulation.md) so that we can adapt the
+code.
+
+### Conditional commands
+Some times, you have to run commands depending on the output of the device or
+a configured variable. For this, there are at least three solutions.
+
+#### Nested `cmd`
+You can nest `cmd` inside [`cmd` blocks](Ruby-API.md#cmd), the following example
+is taken from [nxos.rb](/lib/oxidized/model/nxos.rb):
+```ruby
+  cmd 'show inventory all' do |cfg|
+    if cfg.match? /^% Invalid .* at '\^' marker\./
+      # 'show inventory all' isn't supported on older versions (See Issues #3657, #3779)
+      cfg = cmd 'show inventory'
+    end
+    comment cfg
   end
 ```
-Explanation of the Regular Expression:
-- `\e\[`   : Control Sequence Introducer (CSI), which starts with "ESC [".
-- `[0-?]*` : "Parameter" bytes (range 0x30–0x3F, corresponding to ASCII `0–9:;<=>?`).
-- `[ -\/]*`: "Intermediate" bytes (range 0x20–0x2F, corresponding to ASCII ` !"#$%&'()*+,-./`).
-- `[@-~]`  : The "final" byte (range 0x40–0x7E, corresponding to ASCII ``@A–Z[\]^_`a–z{|}~).[``).
-- `\r?`    : Some ESC codes include a carriage return, which we do not want in the resulting config.
+
+#### pre/post blocks
+After all the [`cmd` blocks](Ruby-API.md#cmd) have been run, the [`pre`
+and `post` blocks](Ruby-API.md#pre--post) are run. The following example is
+taken from [junos.rb](/lib/oxidized/model/junos.rb):
+```ruby
+  post do
+    out = String.new
+    case @model
+    when 'mx960'
+      out << cmd('show chassis fabric reachability') { |cfg| comment cfg }
+    when /^(ex22|ex3[34]|ex4|ex8|qfx)/
+      out << cmd('show virtual-chassis') { |cfg| comment cfg }
+    when /^srx/
+      out << cmd('show chassis cluster status') do |cfg|
+        cfg.lines.count <= 1 && cfg.include?("error:") ? String.new : comment(cfg)
+      end
+    end
+    out
+  end
+```
+
+In [pre/post blocks](Ruby-API.md#pre--post), you can also use dynamic generated
+commands, for example in [eatonnetwok.rb](/lib/oxidized/model/eatonnetwork.rb):
+```ruby
+  post do
+    cmd "save_configuration -p #{@node.auth[:password]}"
+  end
+```
+
+#### Conditional `cmd`
+The `cmd "string"` method for accepts a lambda function via the `:if` argument
+to execute the command only when the lambda evaluates to true.
+The lambda function is evaluated at runtime in the instance context.
+
+```ruby
+  cmd 'conditional command', if: lambda {
+    # Use lambda when multiple lines are needed
+    vars("condition")
+  } do |cfg|
+    @run_second_command = "go"
+    comment cfg
+  end
+
+  cmd 'second command', if: -> { @run_second_command == "go" } do |cfg|
+    comment cfg
+  end
+```
 
 ## Extending an existing model with a new command
 
@@ -143,7 +324,7 @@ A good (and optional) practice for submissions is to provide a
 further developments could break it, and facilitates debugging issues without
 having access to a physical network device for the model.
 
-## Advanced features
+## Advanced feature: output type
 
 The loosely-coupled architecture of Oxidized allows for easy extensibility in more advanced use cases as well.
 

@@ -7,9 +7,10 @@ module Oxidized
   class Node
     include SemanticLogger::Loggable
 
-    attr_reader :name, :ip, :model, :input, :output, :group, :auth, :prompt, :vars, :last, :repo
-    attr_accessor :running, :user, :email, :msg, :from, :stats, :retry, :err_type, :err_reason
+    attr_reader :name, :ip, :model, :input, :output, :group, :auth, :prompt, :timeout, :vars, :last, :repo
+    attr_accessor :running, :user, :email, :msg, :from, :stats, :retry, :err_type, :err_reason, :nexted
     alias running? running
+    alias nexted? nexted
 
     # opt is a hash with the node parameters given in the source (:name, :group, :ip...)
     def initialize(opt)
@@ -27,12 +28,14 @@ module Oxidized
       @output = resolve_output opt
       @auth = resolve_auth opt
       @prompt = resolve_prompt opt
+      @timeout = resolve_timeout opt
       @vars = opt[:vars] || {}
       @stats = Stats.new
       @retry = 0
       @repo = resolve_repo opt
       @err_type = nil
       @err_reason = nil
+      @nexted = false
 
       # model instance needs to access node instance
       @model.node = self
@@ -40,37 +43,37 @@ module Oxidized
 
     def run
       status = :fail
-      config = nil
-      @input.each do |input|
-        # don't try input if model is missing config block, we may need strong config to class_name map
-        cfg_name = input.to_s.split('::').last.downcase
-        next unless @model.cfg[cfg_name] && (not @model.cfg[cfg_name].empty?)
+      config = Oxidized::Model::Outputs.new
+      input_sequence = @model.class.input_sequence(@input)
 
-        @model.input = input = input.new
-        if (config = run_input(input))
-          logger.debug "#{input.class.name} ran for #{name} successfully"
-          status = :success
-          break
+      input_sequence.each do |sequence|
+        status = :fail
+        sequence_config = nil
+        sequence.each do |input|
+          @model.input = input = input.new
+          if (sequence_config = run_input(input))
+            logger.debug "#{input.class.name} ran for #{name} successfully"
+            status = :success
+            break
+          else
+            logger.debug "#{input.class.name} failed for #{name}"
+            status = :no_connection
+          end
+        end
+        if status == :success
+          config.merge! sequence_config
         else
-          logger.debug "#{input.class.name} failed for #{name}"
-          status = :no_connection
+          config = nil
+          break
         end
       end
-      logger.error "No suitable input found for #{name}" unless @model.input
 
       @model.input = nil
       [status, config]
     end
 
     def run_input(input)
-      rescue_fail = {}
-      [input.class::RESCUE_FAIL, input.class.superclass::RESCUE_FAIL].each do |hash|
-        hash.each do |level, errors|
-          errors.each do |err|
-            rescue_fail[err] = level
-          end
-        end
-      end
+      rescue_fail = input.class.rescue_fail
       begin
         input.connect(self) && input.get
       rescue *rescue_fail.keys => err
@@ -154,6 +157,10 @@ module Oxidized
 
     def resolve_prompt(opt)
       opt[:prompt] || @model.prompt || Oxidized.config.prompt
+    end
+
+    def resolve_timeout(opt)
+      resolve_key :timeout, opt, Oxidized.config.timeout
     end
 
     def resolve_auth(opt)

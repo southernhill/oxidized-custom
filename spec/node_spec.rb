@@ -13,7 +13,8 @@ describe Oxidized::Node do
                                model:    'junos',
                                username: 'alma',
                                password: 'armud',
-                               prompt:   'test_prompt')
+                               prompt:   'test_prompt',
+                               timeout:  42)
   end
 
   describe '#new' do
@@ -31,6 +32,9 @@ describe Oxidized::Node do
     end
     it 'should require prompt' do
       _(@node.prompt).must_equal 'test_prompt'
+    end
+    it 'should resolve timeout, from node source' do
+      _(@node.timeout).must_equal 42
     end
   end
 
@@ -72,8 +76,8 @@ describe Oxidized::Node do
                                 username: 'alma',
                                 password: 'armud',
                                 prompt:   'test_prompt')
-      Oxidized::Node.logger.expects(:error)
-                    .with("No suitable input found for example.com")
+      JunOS.logger.expects(:error)
+           .with("Needs one of [:telnet, :ssh] to be configured")
       status, = node.run
       _(status).must_equal :fail
     end

@@ -3,9 +3,10 @@ class Netgear < Oxidized::Model
 
   comment '!'
   prompt /^\(?[\w \-+.]+\)? ?[#>] ?$/
+  clean :escape_codes
 
   # Handle pager for "show version" on old Netgear models: #2394
-  expect /^--More-- or \(q\)uit$/ do |data, re|
+  expect /^--More--(?: or \(q\)uit)?$/ do |data, re|
     send ' '
     data.sub re, ''
   end
@@ -19,7 +20,7 @@ class Netgear < Oxidized::Model
   end
 
   cfg :telnet do
-    username /^(User:|Applying Interface configuration, please wait ...)/
+    username /^(Username:|User:|Applying Interface configuration, please wait ...)/
     password /^Password:/i
   end
 
@@ -57,9 +58,11 @@ class Netgear < Oxidized::Model
     comment cfg
   end
   cmd 'show running-config' do |cfg|
-    cfg.gsub! /(System Up Time\s+).*/, '\\1 <removed>'
+    cfg.gsub! /(System Up Time:?\s+).*/, '\\1 <removed>'
     cfg.gsub! /(Current SNTP Synchronized Time:).*/, '\\1 <removed>'
     cfg.gsub! /(Current System Time:).*/, '\\1 <removed>'
+    # Remove standalone backspace lines
+    cfg.gsub!(/(?:\r?\n)?\x08(?:\r?\n)?/, "\n")
     cfg
   end
 end

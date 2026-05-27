@@ -61,7 +61,7 @@ They test different ruby versions an run security checks on the code (codeql).
 6. Install an test the gem locally
 ```shell
 gem install --user-install pkg/oxidized-0.xx.yy.gem
-~/.local/share/gem/ruby/3.1.0/bin/oxidized
+~/.local/share/gem/ruby/3.3.0/bin/oxidized
 ```
 
 ## Release in github
@@ -71,9 +71,14 @@ git push origin 0.xx.yy
 ```
 
 Make a release from the tag in github.
-- Take the release notes frm CHANGELOG.md
+- Name the release `0.xx.yy`
+- Generate release notes
+- Remove `## What's changed`
+- Take the release notes from CHANGELOG.md
 - List new contributors (generated automatically)
 - Keep the Full Changelog (generated automatically)
+- Preview
+- Publish
 
 Close the corresponding milestone in github.
 

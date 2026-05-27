@@ -1,24 +1,10 @@
 module Oxidized
   require 'net/ftp'
   require 'timeout'
-  require_relative 'cli'
-
   class FTP < Input
-    RESCUE_FAIL = {
-      debug: [
-        # Net::SSH::Disconnect,
-      ],
-      warn:  [
-        # RuntimeError,
-        # Net::SSH::AuthenticationFailed,
-      ]
-    }.freeze
-    include Input::CLI
-
     def connect(node) # rubocop:disable Naming/PredicateMethod
       @node = node
       @node.model.cfg['ftp'].each { |cb| instance_exec(&cb) }
-      @log = File.open(Oxidized::Config::LOG + "/#{@node.ip}-ftp", 'w') if Oxidized.config.input.debug?
       @ftp = Net::FTP.new(@node.ip)
       @ftp.passive = Oxidized.config.input.ftp.passive
       @ftp.login @node.auth[:username], @node.auth[:password]
@@ -47,9 +33,6 @@ module Oxidized
 
     def disconnect
       @ftp.close
-    # rescue Errno::ECONNRESET, IOError
-    ensure
-      @log.close if Oxidized.config.input.debug?
     end
   end
 end

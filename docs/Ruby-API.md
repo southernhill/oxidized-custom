@@ -2,6 +2,40 @@
 
 The following objects exist in Oxidized.
 
+## Index
+- [Input](#input)
+  - [http](#http)
+- [Output](#output)
+- [Source](#source)
+- [Model](#model)
+  - [At the top level](#at-the-top-level)
+    - [cfg](#cfg)
+    - [inputs](#inputs)
+    - [cmd](#cmd)
+    - [comment](#comment)
+    - [prompt](#prompt)
+    - [expect](#expect)
+    - [pre / post](#pre--post)
+    - [macro :enable](#macro-enable)
+    - [clean :escape_codes](#clean-escape_codes)
+    - [clean :cut](#clean-cut)
+  - [At the second level](#at-the-second-level)
+    - [comment](#comment-1)
+    - [password](#password)
+    - [post_login](#post_login)
+    - [pre_logout](#pre_logout)
+    - [send](#send)
+    - [cmd](#cmd-1)
+  - [Monkey patching](#monkey-patching)
+    - [clear: true](#clear-true)
+    - [prepend: true](#prepend-true)
+  - [Refinements - String Convenience Methods](#refinements)
+  - [cut_tail](#cut_tail)
+  - [cut_head](#cut_head)
+  - [cut_both](#cut_both)
+  - [keep_lines](#keep_lines)
+  - [reject_lines](#reject_lines)
+
 ## Input
 
 * gets config from nodes
@@ -59,6 +93,40 @@ The block may contain commands to change some behaviour for the given methods
 
 Supports [monkey patching](#monkey-patching).
 
+#### 'inputs'
+`inputs` can be used to specify multiple inputs to be run on the model. It
+takes a list of either input symbols or lists of input symbols:
+```ruby
+  inputs [:ssh, %i[scp ftp]]
+  inputs [:ssh, :scp]
+```
+
+Oxidized will run the model against each item of `inputs`. If an item is a
+list of symbols (`%i[scp ftp]`), it will try each input in the order
+configured in the `input/default` section of the oxidized configuration file.
+
+If `inputs` is not specified, Oxidized will try each input that has a `cfg`
+section in the model, in the order configured in the `input/default` section
+of the oxidized configuration file.
+
+To specify which command is to run against which input, use the `input`
+parameter of the `cmd` configuration:
+```ruby
+  cmd 'upsabout', input: :ssh do |cfg|
+    comment cfg
+  end
+
+  cmd 'config.ini', input: %i[scp ftp] do |cfg|
+    "; ========== config.ini ==========\n" + cfg
+  end
+```
+
+`cmd` without `input` parameter will run against every input.
+
+
+See the [ApcAos model](/lib/oxidized/model/apcaos.rb) for a full example.
+
+
 #### `cmd`
 
 Is used to specify commands that should be executed on a model in order to
@@ -68,6 +136,7 @@ gather its configuration. It can be called with:
 * A string and a block
 * `:all` and a block
 * `:secret` and a block
+* `:significant_changes` and a block
 
 The block takes a single parameter `cfg` containing the output of the command
 being processed.
@@ -88,10 +157,43 @@ given block before emitting it to hide secrets if secret hiding is enabled. The
 block should replace any secrets with `'<hidden>'` and return the resulting
 string.
 
+Calling `cmd` with `:significant_changes` and a block will pass the final
+configuration to the given block. The resulting string should contain
+significant changes only and will be used to
+[decide if the configuration should be stored](Configuration.md#store-configuration-only-on-significant-changes).
+
 Execution order is `:all`, `:secret`, and lastly the command specific block, if
 given.
 
+The `cmd "string"` method accepts a lambda function via the `:if` argument
+to execute the command only when the lambda evaluates to true.
+The lambda function is evaluated at runtime in the instance context.
+See [Conditional `cmd`](Creating-Models.md#conditional-cmd) for details.
+
+The `cmd "string"` method accepts a list of supported inputs via the `:input`
+argument to limit this command to specific inputs.
+```ruby
+  cmd 'config.ini', input: %i[scp ftp] do |cfg|
+    "; ========== config.ini ==========\n" + cfg
+  end
+```
+
 Supports [monkey patching](#monkey-patching).
+
+#### pre / post
+After all `cmd` have been run, the blocks defined in pre and post are called. The
+output of pre will be prepended to the output of the model, The output of post
+will be appended.
+
+```ruby
+  pre do
+    "Prepended output after cmd blocks have been run\n"
+  end
+
+  post do
+    "Appended output after cmd blocks have been run\n"
+  end
+```
 
 #### `comment`
 
@@ -118,6 +220,28 @@ The passed data is replaced by the return value of the block.
 it's further processed.
 
 Supports [monkey patching](#monkey-patching).
+
+#### `macro :enable`
+Implements an [handling of enable](Creating-Models.md#handling-enable-mode) for the model.
+
+#### `clean :escape_codes`
+[Remove ANSI escape codes](Creating-Models.md#remove-ansi-escape-codes) from the output.
+
+#### `clean :cut`
+Removes (default) the first and last line of the outputs (most of the time
+command echo and prompt).
+Arguments: head (default: 1), tail (default: 1)
+```ruby
+  clean :cut, head: 2, tail: 0
+```
+
+Equivalent to:
+```ruby
+  cmd :all do |cfg|
+    cfg.cut_both(2, 0)
+  end
+```
+
 
 ### At the second level
 
@@ -161,6 +285,10 @@ Supports [monkey patching](#monkey-patching).
 Usually used inside `expect` or blocks passed to `post_login`/`pre_logout`.
 Takes a single parameter: a string to be sent to the device.
 
+#### `cmd`
+You can nest a `cmd` block inside first level blocks. It will be executed at
+runtime.
+
 ### Monkey patching
 
 Several model blocks accept behavior-modifying arguments that make monkey
@@ -171,7 +299,6 @@ This functionality is supported by `cfg`, `cmd`, `pre_*`, `post_*`, and `expect`
 blocks.
 
 #### `clear: true`
-
 Resets the existing block, allowing the user to completely override its contents.
 
 #### `prepend: true`
@@ -201,3 +328,9 @@ single line was present.
 
 Returns a multi-line string without the first and last lines, or an empty string
 if fewer than three lines were present.
+
+#### `keep_lines`
+Returns a multi-line string with only the lines matching any pattern (String or Regexp) given in an array.
+
+#### `reject_lines`
+Returns a multi-line string without the lines matching any pattern (String or Regexp) given in an array.
