@@ -121,8 +121,17 @@ end
 
 post '/nodes/:id' do
   id = params['id'].to_i
-  halt 404, 'no such node' unless NODES.where(id: id).any?
+  node = NODES.first(id: id) or halt 404, 'no such node'
   row = node_params
+  # stored secrets are never sent to the browser, so a blank field means
+  # "keep the current value"; the clear checkbox removes it explicitly
+  %i[password enable].each do |f|
+    if params["clear_#{f}"] == '1'
+      row[f] = nil
+    elsif row[f].nil?
+      row[f] = node[f]
+    end
+  end
   if row[:name].nil? || row[:model].nil?
     session[:flash] = 'name and model are required'
   elsif NODES.exclude(id: id).where(name: row[:name]).any?
@@ -207,6 +216,9 @@ __END__
   legend .hint { text-transform: none; letter-spacing: normal; font-weight: 400; }
   label { display: flex; flex-direction: column; gap: .25em;
           font-size: .78em; color: var(--muted); }
+  label.clearopt { flex-direction: row; align-items: center; gap: .35em;
+                   align-self: center; cursor: pointer; }
+  label.clearopt input { width: auto; }
   input {
     font: inherit; font-size: .95em; color: var(--fg); background: var(--input-bg);
     border: 1px solid var(--line); border-radius: 6px; padding: .38em .6em; width: 11em;
@@ -274,8 +286,16 @@ __END__
 <fieldset>
   <legend>credential overrides <span class="hint">(leave empty to use the shared credentials from the oxidized config)</span></legend>
   <label>username<br><input name="username" autocomplete="off" value="<%= h node[:username] %>"></label>
-  <label>password<br><input name="password" type="password" autocomplete="off" value="<%= h node[:password] %>"></label>
-  <label>enable<br><input name="enable" type="password" autocomplete="off" value="<%= h node[:enable] %>"></label>
+  <label>password<br><input name="password" type="password" autocomplete="new-password"
+    placeholder="<%= node[:password] ? 'set (blank keeps it)' : '' %>"></label>
+  <% if node[:id] && node[:password] %>
+  <label class="clearopt"><input type="checkbox" name="clear_password" value="1"> clear password</label>
+  <% end %>
+  <label>enable<br><input name="enable" type="password" autocomplete="new-password"
+    placeholder="<%= node[:enable] ? 'set (blank keeps it)' : '' %>"></label>
+  <% if node[:id] && node[:enable] %>
+  <label class="clearopt"><input type="checkbox" name="clear_enable" value="1"> clear enable</label>
+  <% end %>
 </fieldset>
 
 @@ index
