@@ -316,7 +316,7 @@ __END__
     </div></td>
   </tr>
   <% end %>
-  <% if @nodes.empty? %><tr><td colspan="7" class="empty">no nodes yet, add the first one below</td></tr><% end %>
+  <% if @nodes.empty? %><tr><td colspan="7" class="empty">no nodes yet, add the first one above</td></tr><% end %>
   </tbody>
 </table>
 
