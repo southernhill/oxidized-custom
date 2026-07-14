@@ -24,6 +24,10 @@ RUN mkdir -p /home/oxidized/.config/oxidized/ && \
 COPY extra/oxidized.runit /etc/service/oxidized/run
 COPY extra/auto-reload-config.runit /etc/service/auto-reload-config/run
 COPY extra/update-ca-certificates.runit /etc/service/update-ca-certificates/run
+COPY extra/nodedb-ui.runit /etc/service/nodedb-ui/run
+
+# web UI for the sqlite node inventory (enabled with NODEDB_UI=true)
+COPY extra/nodedb/schema.sql extra/nodedb/migrate_routerdb.rb extra/nodedb/app.rb /opt/nodedb/
 
 # Prepare the build of oxidized, copy our working directory in the container
 COPY . /tmp/oxidized/
@@ -64,6 +68,8 @@ RUN set -eux; \
       # Gems needed by oxidized-web
       ruby-charlock-holmes ruby-haml ruby-htmlentities ruby-json \
       puma ruby-sinatra ruby-sinatra-contrib \
+      # Needed by the nodedb UI (sinatra classic launcher)
+      ruby-rackup \
       # Gems needed by slack-ruby-client
       ruby-faraday ruby-faraday-net-http ruby-faraday-multipart ruby-hashie \
       # Gems needed by semantic logger
@@ -94,6 +100,8 @@ RUN set -eux; \
 WORKDIR /
 
 EXPOSE 8888/tcp
+# nodedb UI (only listens when NODEDB_UI=true)
+EXPOSE 8889/tcp
 
 # dumb-init handles PID 1 for proper signal forwarding (Ctrl-C, SIGTERM)
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]

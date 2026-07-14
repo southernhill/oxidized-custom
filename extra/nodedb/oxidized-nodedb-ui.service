@@ -1,0 +1,21 @@
+[Unit]
+Description=Web UI for the Oxidized sqlite node inventory
+After=network.target
+
+[Service]
+Type=simple
+User=oxidized
+Group=oxidized
+WorkingDirectory=/home/oxidized/nodedb
+Environment=NODEDB_PATH=/home/oxidized/nodedb/nodes.db
+Environment=NODEDB_UI_PORT=8889
+Environment=NODEDB_UI_USER=admin
+# Set the basic-auth password here (or better: in an EnvironmentFile with 600 perms)
+#Environment=NODEDB_UI_PASSWORD=changeme
+#EnvironmentFile=/home/oxidized/nodedb/ui.env
+ExecStart=/usr/bin/env bundle exec ruby app.rb
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

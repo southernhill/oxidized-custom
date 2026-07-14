@@ -1,0 +1,13 @@
+#!/bin/bash
+
+if [ "$NODEDB_UI" != "true" ]; then
+    # Just stop and do nothing
+    sleep infinity
+fi
+
+export NODEDB_PATH="${NODEDB_PATH:-/home/oxidized/nodedb/nodes.db}"
+
+mkdir -p "$(dirname "$NODEDB_PATH")"
+chown -R oxidized:oxidized "$(dirname "$NODEDB_PATH")"
+
+exec gosu oxidized ruby /opt/nodedb/app.rb
